@@ -63,6 +63,31 @@ bash /opt/freqtrade-src/trading/deploy/set-telegram.sh <bot-token>
 bash /opt/freqtrade-src/trading/deploy/set-telegram.sh <bot-token> <chat-id>
 ```
 
+## Limits and self-healing
+
+A 1 GB Always Free micro is a hostile place to run a bot, so the failure modes
+are closed off explicitly rather than hoped away:
+
+| Risk | Limit |
+| --- | --- |
+| OOM killer takes sshd, box unreachable | 768 MB container cap, 1.5 GB swap, `oom_score_adj: 500` on the bot, `OOMScoreAdjust=-900` on sshd |
+| Restart loop starves the host | `restart: on-failure:3` (gives up instead of looping) |
+| docker json-file log fills the disk | `max-size: 10m`, `max-file: 3`, globally in `/etc/docker/daemon.json` |
+| systemd journal fills the disk | `SystemMaxUse=200M` |
+| Runaway CPU starves the shell | `cpus: "0.9"` |
+| Thread/fork leak exhausts pids | `pids_limit: 200` |
+| Bot alive but wedged (never "crashes") | API healthcheck + `freqtrade-guard.timer` every 5 min |
+
+```bash
+sudo bash /opt/freqtrade-src/trading/deploy/harden-host.sh   # idempotent
+```
+
+The watchdog resurrects a stopped or unhealthy container within 5 minutes and
+logs to the journal (`journalctl -t freqtrade-guard`). It also means a deliberate
+`docker compose down` gets undone — disable it with
+`sudo systemctl disable --now freqtrade-guard.timer` before stopping the bot for
+good.
+
 The script validates the token with `getMe`, discovers your chat id from
 `getUpdates`, writes the `telegram` block into `user_data/config.json`, restarts
 the container, waits for the API and sends a test message. It is safe to re-run.

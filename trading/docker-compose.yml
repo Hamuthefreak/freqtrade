@@ -24,6 +24,35 @@ services:
     # The bot idles at roughly 450-600 MB with two pairs, so this fits.
     mem_limit: 768m
     memswap_limit: 1536m
+    # Leave a slice of CPU for sshd and dockerd so a runaway indicator loop
+    # cannot make the box unreachable, and cap the pid table so a fork/thread
+    # leak cannot wedge docker itself.
+    cpus: "0.9"
+    pids_limit: 200
+    # If the kernel is short on memory, kill the bot rather than sshd.
+    oom_score_adj: 500
+    # Docker does NOT rotate json-file logs by default. On a bot that runs for
+    # months an uncapped log quietly eats the 45 GB boot volume, and then every
+    # write on the system fails. 3 x 10 MB is plenty for a year of trading.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # The API answering "pong" is the bot's real heartbeat. A process can be
+    # alive but wedged (deadlock, stuck exchange call) without ever crashing,
+    # so "is the container running" is not enough to trust it.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import urllib.request,sys;
+          sys.exit(0 if b'pong' in urllib.request.urlopen('http://127.0.0.1:8080/api/v1/ping', timeout=5).read() else 1)"
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 180s
+    stop_grace_period: 30s
     volumes:
       - "./user_data:/freqtrade/user_data"
     # Loopback only, on purpose: the web UI is reached through an SSH tunnel and
