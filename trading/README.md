@@ -159,3 +159,82 @@ Setup, done once:
 
 Never upgrade the tenancy to Pay As You Go. Capacity beyond the Always Free Arm
 allowance is billed, which is why this script pins the size and the count.
+
+## The strategy that is actually running
+
+`NASOSv4Wide` (a 4-line subclass of Foxel05's `NASOSv4`), spot, 5m, long only,
+run from `user_data/strategies/NASOSv4Wide.py` via `--strategy NASOSv4Wide` in
+the compose file. It is NASOSv4 with one rule removed — the `EWO > 2.4` trend
+gate — because that gate made the strategy fire zero times in a week. See
+"Tuning for trade frequency" below for the measurements behind that.
+
+Fourteen pairs, not two: `BTC, ETH, SOL, DOGE, XRP, ADA, LINK, AVAX, INJ, NEAR,
+ARB, APT, OP, TRX` against USDT, with `max_open_trades: 4` (400 USDT maximum
+exposure of the 1000 dry wallet). The pair list is part of the strategy choice,
+not an afterthought — the strategy trades liquid alts, not BTC/ETH.
+
+Parameters come from the strategy file and are mirrored in `config.json`
+(config values win in freqtrade): `stoploss -0.15`, ROI disabled
+(`{"0": 10.0}`), trailing stop `0.1%` once `1.6%` in profit. It exits with a
+trailing stop rather than a fixed target, so trades last hours, not minutes.
+
+### Why this one, measured
+
+Every candidate was backtested on this box with the same account
+(100 USDT stake, 1000 wallet, 2 open trades) over 240 days of 5m Binance data:
+
+| strategy | trades | profit | max DD | notes |
+|---|---|---|---|---|
+| **NASOSv4** | **15** | **+2.86%** | **0.00%** | all 15 winners, ~23h hold |
+| ElliotV5_SMA | 9 | +0.79% | 0.44% | |
+| DS_BNC_EV1E_5m | 3 | +0.41% | 0.00% | |
+| E0V1E | 1 | +0.18% | 0.00% | |
+| WolfBreakout_Pullback | 1 | 0.00% | 0.00% | daily timeframe |
+| NotAnotherSMAOffsetStrategyHO | 0 | 0.00% | 0.00% | league #1, never fires here |
+| DS_SOS_5m | 0 | 0.00% | 0.00% | |
+
+The famous "best" strategies on the Freqle league (33 pairs, 2022–2024) are
+alt-coin dip buyers: `NotAnotherSMAOffsetStrategyHO` needs price 3.4% below its
+16-EMA on a 5-minute chart, which BTC/ETH did **zero** times in 26,122 candles.
+NASOSv4 is the only candidate that fires often enough to be worth running, and it
+trades alts, not BTC/ETH — hence the eight-pair list.
+
+### Tuning for trade frequency
+
+The shipped NASOSv4 settings produced **zero signals in 7 days** across 20 liquid
+pairs (needs a 1.6% dip below the 8-EMA *and* `EWO > 2.4`), so the bot would sit
+idle for weeks. Everything below was backtested on the same 14 pairs, last 30
+days, 4 open-trade slots:
+
+| variant | change | trades | profit | max DD | verdict |
+|---|---|---|---|---|---|
+| `NASOSv4` | as shipped | 0 | — | — | never fires |
+| `NASOSv4FastA` | dip 0.5%, EWO > 0 | 67 | −5.46% | 8.5% | trades, loses |
+| `NASOSv4FastB` | dip 1%, EWO > −2 | 68 | −8.90% | 11.2% | worse |
+| `NASOSv4FastC` | dip 0.1%, EWO > 1 | 84 | −10.02% | 11.5% | worse |
+| `NASOSv4T1`–`T4` | fast entries, tighter stops/TP | 214–339 | −8% to −10% | up to 13% | exits are not the problem |
+| **`NASOSv4Wide`** | deep dip kept, EWO gate dropped | **31** | **+0.76%** | **3.0%** | **deployed** |
+| `NASOSv4WideTight` | same entry, tight stop | 39 | −0.51% | 1.9% | worse |
+
+Shallow dips have no edge after 0.1%/side fees; the deep dip does. `NASOSv4Wide`
+is the only variant that both trades about once a day and stays positive.
+
+`force_entry_enable` is `true` so a dry-run entry can be placed through the API
+(loopback only, behind the SSH tunnel). It has no effect on normal signal-driven
+entries.
+
+### Re-running the comparison
+
+```bash
+# candidates live outside user_data so the live bot cannot load them by accident
+sudo docker run --rm --memory 900m --cpus 1 \
+  -v /opt/freqtrade/user_data:/freqtrade/user_data \
+  -v /opt/freqtrade/candidates:/freqtrade/candidates:ro \
+  freqtradeorg/freqtrade:stable backtesting --strategy NASOSv4 \
+  --strategy-path /freqtrade/candidates \
+  --config /freqtrade/user_data/backtest_alts.json --timerange 20260301-
+```
+
+`user_data/backtest.json` and `backtest_alts.json` carry no stoploss/ROI on
+purpose, so each strategy is judged with its own risk settings instead of the
+live config's.
