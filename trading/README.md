@@ -129,3 +129,33 @@ LoadWave (Node + PostgreSQL) plus the bot needs headroom. freqtrade loads
 pandas/numpy per pair; on a 1 GB AMD micro instance the OOM killer will take it
 out. `install-freqtrade.sh` prints available RAM and warns below ~900 MB. The
 Ampere A1 (free tier) shape is fine; the arm64 image is published.
+
+## Claiming the free Arm instance (optional)
+
+Oracle's Always Free Ampere A1 shape is usually "out of host capacity", so
+`claim-a1.sh` runs from a five-minute systemd timer, tries one launch, and logs
+the result. It stops itself the moment an instance exists, is hard-coded to a
+single `VM.Standard.A1.Flex` at 1 OCPU / 6 GB, and has no other shape paths, so
+it cannot create anything billable.
+
+Setup, done once:
+
+1. A key pair already exists on the VM at `/root/.oci/oci_api_key.pem` (mode
+   600); only its public half ever leaves the box. Its fingerprint is
+   `openssl rsa -pubout -outform DER -in /root/.oci/oci_api_key.pem | openssl md5 -c`.
+2. OCI console: profile menu, User settings, API keys, Add API key, Paste public
+   key. Paste `/root/.oci/oci_api_key_public.pem`. Never paste the private key.
+3. Collect four values that are identifiers rather than secrets: the tenancy
+   OCID, the user OCID, the region identifier, and the subnet OCID of the
+   existing VCN.
+4. Write `/root/.oci/config` (chmod 600) with `user`, `fingerprint`, `tenancy`,
+   `region` and `key_file=/root/.oci/oci_api_key.pem`.
+5. Write `/etc/oci-claim.conf` (chmod 600) with `COMPARTMENT_OCID` (the tenancy
+   OCID works as root compartment), `AVAILABILITY_DOMAIN`, `SUBNET_OCID`,
+   `IMAGE_OCID` (the aarch64 Ubuntu image for the region) and
+   `SSH_PUBKEY_FILE=/home/ubuntu/.ssh/authorized_keys`.
+6. `systemctl enable --now oci-claim-a1.timer`, then watch
+   `/var/log/oci-claim-a1.log`.
+
+Never upgrade the tenancy to Pay As You Go. Capacity beyond the Always Free Arm
+allowance is billed, which is why this script pins the size and the count.

@@ -1,0 +1,9 @@
+[Unit]
+Description=Claim an Always Free Ampere A1 instance (1 OCPU / 6 GB)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/claim-a1.sh
+TimeoutStartSec=900

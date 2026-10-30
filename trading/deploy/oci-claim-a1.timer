@@ -1,0 +1,11 @@
+[Unit]
+Description=Retry claiming free Ampere A1 capacity every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+RandomizedDelaySec=45
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target
