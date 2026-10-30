@@ -38,6 +38,7 @@ fi
 [ -x "$OCI" ] || { log "error: oci CLI missing at $OCI"; exit 1; }
 
 export OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING=True
+export PYTHONWARNINGS=ignore
 
 existing=$("$OCI" compute instance list \
     --compartment-id "$COMPARTMENT_OCID" --all \
@@ -75,7 +76,11 @@ if "$OCI" compute instance launch \
     exit 0
 fi
 
-# Out-of-capacity is the expected outcome; log it compactly and let the timer retry.
-log "no capacity yet: $(tr '\n' ' ' <"$out" | cut -c1-400)"
+# Out of capacity is the expected outcome, but other failures (quota, image,
+# permissions) must be readable too, so log the service error itself rather than
+# the first 400 characters, which are usually Python import warnings.
+code=$(grep -o '"code": "[^"]*"' "$out" | tail -1 | cut -d'"' -f4)
+msg=$(grep -o '"message": "[^"]*"' "$out" | tail -1 | cut -d'"' -f4)
+log "no capacity yet: ${code:-unknown}: ${msg:-$(tail -2 "$out" | tr '\n' ' ' | cut -c1-200)}"
 rm -f "$out"
 exit 0

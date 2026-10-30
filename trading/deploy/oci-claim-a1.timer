@@ -1,10 +1,12 @@
 [Unit]
-Description=Retry claiming free Ampere A1 capacity every 5 minutes
+Description=Retry claiming free Ampere A1 capacity every 15 minutes
 
 [Timer]
-OnBootSec=2min
-OnUnitActiveSec=5min
-RandomizedDelaySec=45
+# Oracle throttles instance launches per tenancy with 429 TooManyRequests;
+# attempts minutes apart get rejected before they ever reach the capacity check.
+OnBootSec=5min
+OnUnitActiveSec=15min
+RandomizedDelaySec=300
 AccuracySec=30s
 
 [Install]
