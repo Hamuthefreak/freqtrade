@@ -1,0 +1,46 @@
+name: VM shell (manual)
+
+# A one-command remote shell on the production VM.
+#
+# Why this exists: the VM is only reachable with the VM_SSH_KEY secret, so the
+# only way to run a command on it (without someone at a keyboard) is a workflow
+# that SSHes in. This uses the same three secrets as the deploy.
+#
+# Only accounts with write access to this repository can start it, because
+# workflow_dispatch requires write permission. The output lands in the job log.
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: "Command(s) to run on the VM"
+        required: true
+        default: "uptime; free -m; docker ps -a --format '{{.Names}} {{.Status}}'"
+        type: string
+      timeout:
+        description: "Whole-script timeout (e.g. 10m, 20m)"
+        required: false
+        default: "10m"
+        type: string
+
+jobs:
+  shell:
+    name: Run on VM
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          port: 22
+          command_timeout: ${{ inputs.timeout }}
+          # No `set -e`: a diagnostic command that fails should still show its
+          # output, and later commands in the same run should still execute.
+          script: |
+            set +e
+            echo "--- host: $(hostname) / user: $(whoami) ---"
+            ${{ inputs.command }}
+            rc=$?
+            echo "--- last exit code: $rc ---"
+            exit $rc

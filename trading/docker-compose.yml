@@ -1,0 +1,38 @@
+---
+# freqtrade trading bot (DRY RUN) on a dedicated 1 GB VM.
+#
+# freqtrade runs from its official image - no bot source code lives on the VM.
+# Only this file plus user_data/ (config, strategies, database) matter.
+#
+# Start/stop:   docker compose up -d | docker compose down
+# Logs:         docker compose logs -f
+# Status:       docker compose ps
+services:
+  freqtrade:
+    image: freqtradeorg/freqtrade:stable
+    container_name: freqtrade
+    # on-failure:3, NOT unless-stopped. A bot that keeps dying (out of memory)
+    # must stay stopped instead of restarting forever: a restart loop that
+    # reloads pandas/numpy every few seconds is what starved sshd on the old
+    # 1 GB VM badly enough that deploys could no longer reach the box.
+    restart: on-failure:3
+    # Hard memory ceiling, 768 MB of RAM plus up to 768 MB of swap.
+    #
+    # This is the difference between "the bot crashed" and "the server died".
+    # Without a cap the kernel chooses the victim under pressure and it is
+    # usually sshd, killing remote access to a machine that is otherwise fine.
+    # The bot idles at roughly 450-600 MB with two pairs, so this fits.
+    mem_limit: 768m
+    memswap_limit: 1536m
+    volumes:
+      - "./user_data:/freqtrade/user_data"
+    # Loopback only, on purpose: the web UI is reached through an SSH tunnel and
+    # is never exposed to the internet.
+    ports:
+      - "127.0.0.1:8080:8080"
+    command: >
+      trade
+      --logfile /freqtrade/user_data/logs/freqtrade.log
+      --db-url sqlite:////freqtrade/user_data/tradesv3.sqlite
+      --config /freqtrade/user_data/config.json
+      --strategy SampleStrategy
