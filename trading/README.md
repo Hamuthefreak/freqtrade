@@ -368,3 +368,91 @@ So the honest status is: this is a plausible mechanism without a demonstrated
 edge, running for free in dry run. The next step that could actually change the
 outcome is a parameter search with an out-of-sample holdout (hyperopt on one
 window, validate on another), not a louder version of the same rules.
+
+## Benchmarking other strategies (2026-11-02)
+
+Same 14 pairs, same 90 days (Aug 5 – Nov 2), same stake and slot count, so the
+only variable is the strategy. Five stock strategies from
+`freqtrade/freqtrade-strategies` were fetched into `user_data/strategies/` and
+run unchanged:
+
+| Strategy | Trades | Total profit | Max drawdown | Win rate |
+| --- | --- | --- | --- | --- |
+| NASOSv4Wide (deployed) | 121 | **+10.28%** | 3.55% | 93.4% |
+| Supertrend | 1357 | +9.05% | 8.95% | 46.7% |
+| Diamond | 25 | +1.91% | 1.85% | 92.0% |
+| Strategy002 | 88 | +0.30% | 1.13% | 51.1% |
+| Bandtastic | 2261 | −30.73% | 30.79% | 50.2% |
+| MultiMa | — | killed (OOM, exit 137) | — | — |
+
+`MultiMa` is not a result: it was killed by the container's 768 MB cap, which is
+the standing limit on this 952 MB host. Two backtests never run concurrently for
+the same reason.
+
+The 90-day ranking is misleading on its own, because the same strategy split into
+three consecutive windows tells a different story:
+
+| Window | Trades | Total profit |
+| --- | --- | --- |
+| Aug 5 – Sep 5 | 21 | +0.74% |
+| Sep 5 – Oct 5 | 75 | +8.69% |
+| Oct 5 – Nov 2 | 25 | −0.62% |
+
+Nearly all of the 90-day profit is September, a dip-and-recover market that suits
+a dip-buying strategy. Outside that month the deployed strategy is flat, and the
++10.28% headline is one favourable regime rather than a durable edge.
+
+### The same strategies on the holdout month
+
+The ranking above rewards whoever best exploited September. Re-running the
+candidates on Oct 5 – Nov 2, a window none of them was tuned on, inverts it:
+
+| Strategy | Trades | Holdout profit | 90-day profit |
+| --- | --- | --- | --- |
+| Strategy002 | 34 | +0.17% | +0.30% |
+| NASOSv4Wide (deployed) | 25 | −0.62% | +10.28% |
+| Diamond | 5 | −1.92% | +1.91% |
+| Supertrend | 398 | −7.97% | +9.05% |
+
+`Diamond`'s run was cut short by the memory cap (exit 137) after its summary
+printed, so treat its five trades as indicative only.
+
+Nothing survives the holdout as a winner worth switching to. `Supertrend` keeps
+almost none of its 90-day profit out of sample and needs 398 trades and a 37%
+win rate to lose money, which also costs the most in fees. `Strategy002` is
+marginally positive but on 34 trades — indistinguishable from noise. Switching
+the bot to any of them would be trading a measured non-edge for an unmeasured
+one.
+
+## Parameter search and holdout validation (2026-11-02)
+
+Hyperopt was tried first and abandoned: it was 16 minutes in with no epoch
+finished, on a host that was swapping 1 GB of memory, which projects to hours for
+30 epochs. A bounded grid over the four gates that decide how often the strategy
+fires replaced it. Each variant is a subclass in `NASOSv4Grid.py`, measured on
+September 5 – October 5 (the tuning window) and then on October 5 – November 2
+(the holdout, never tuned on).
+
+| Variant | Tune: trades / profit | Holdout: trades / profit |
+| --- | --- | --- |
+| NASOSv4Wide (deployed) | 75 / +8.69% | 25 / −0.62% |
+| `low_offset` 0.988 — shallower dip | 104 / **+11.41%** | 46 / **−4.53%** |
+| `rsi_buy` 80 — looser RSI ceiling | not completed | not completed |
+| `base_nb_candles_buy` 12 | not completed | not completed |
+| `lookback_candles` 6 | not completed | not completed |
+
+The single variant that beat the tuning window lost 4.5% on the holdout, with a
+5.83% drawdown against the deployed config's −0.62%. That is the overfit the
+holdout exists to catch: the shallower dip buys more often, and in September that
+was rewarded, but outside it the extra trades were simply worse entries.
+
+**Deploy rule applied: nothing was deployed.** The live bot still runs
+`NASOSv4Wide` with `low_offset` 0.984, stake 100, four slots. The remaining three
+variants were never measured, because each run costs 5–10 minutes of a swapping
+1 GB box, and none of them was expected to outperform the one that already failed
+the holdout — a claim to test, not a result.
+
+The general lesson from this whole exercise: on this dataset, every change that
+increased trade frequency reduced expectancy on unseen data. No setting found so
+far turns the strategy into a reliable earner; it is a mechanism that paid off in
+one particular market and gives back outside it.
