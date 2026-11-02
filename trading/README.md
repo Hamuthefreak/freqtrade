@@ -43,14 +43,48 @@ until the API answers.
 - pulls the image and restarts the bot only if needed,
 - refuses to touch your live `config.json`.
 
-## Watching it
+## Watching it (the HamuBot dashboard)
 
-Port 8080 is bound to `127.0.0.1` only. From your laptop:
+freqtrade ships FreqUI inside its image and serves it from the same port as the
+API, under `/ui`. Port 8080 is bound to `127.0.0.1` only, so from your laptop:
 
 ```bash
 ssh -N -L 8080:127.0.0.1:8080 ubuntu@<vm-ip>
-# then open http://127.0.0.1:8080  (user: freqtrader, password: generated at install)
+# then open http://127.0.0.1:8080/ui
 ```
+
+Log in with the `api_server` username and password from the VM's `config.json`:
+
+```bash
+sudo python3 -c "import json;print(json.load(open('/opt/freqtrade/user_data/config.json'))['api_server']['password'])"
+```
+
+Why this shape is the secure one: the UI and the API are **the same origin**, so
+`CORS_origins` stays empty and no browser anywhere is trusted; the dashboard is
+never exposed to the internet, it is only reachable through an SSH tunnel; it
+authenticates with a JWT issued against the `api_server` credentials
+(`POST /api/v1/token/login`, access + refresh token); `enable_openapi` is off, so
+no schema is published; and the listener is bound to `127.0.0.1` on the host. The
+only credential that exists is the one already in `config.json` — adding the
+dashboard created no new secret, port or user.
+
+The HamuBot branding is a read-only mount over the image's UI directory:
+
+```
+./ui  ->  /freqtrade/freqtrade/rpc/api_server/ui/installed:ro
+```
+
+`ui/` is a copy of the shipped FreqUI with the `<title>` and the settings
+heading renamed, so the branding survives every container recreate (the image's
+copy is untouched and shadowed). Re-create it after an image update with
+`sudo bash trading/deploy/brand-ui.sh`, which re-copies and re-patches the files.
+
+That directory is generated, not committed (3 MB of build output the image
+already ships, and `.gitignore` excludes it). On a fresh checkout of this repo
+the mount therefore points at an empty directory and the dashboard renders
+freqtrade's "UI not installed" fallback instead — run `brand-ui.sh` once after
+the first `docker compose up`, or drop the mount line to fall back to stock
+FreqUI.
 
 ## Telegram (phone control + alerts)
 
@@ -62,6 +96,41 @@ bash /opt/freqtrade-src/trading/deploy/set-telegram.sh <bot-token>
 # or, if you already know your chat id:
 bash /opt/freqtrade-src/trading/deploy/set-telegram.sh <bot-token> <chat-id>
 ```
+
+## What the messages look like
+
+The bot is named `HamuBot` (`bot_name` in `config.json`), which is the bold
+header on every notification: startup, warnings, `/status` and the daily summary.
+No trading setting is involved — it is a label, and `--strategy` is still
+`NASOSv4Wide`.
+
+Every notification is kept on (entries, fills and cancels; exits, fills and
+cancels), so you see the full lifecycle. On top of freqtrade's own fill message,
+the strategy adds one short recap from its `order_filled` hook, with the numbers
+you actually scan for on the last line:
+
+```
+🟢 HamuBot · entry filled
+NEAR/USDT — 23.4 @ 4.272
+stake 99.96 USDT
+
+position open · wallet 1001.74 USDT
+```
+
+```
+🔵 HamuBot · exit filled
+NEAR/USDT — 23.4 @ 4.341
+trailing_stop_loss · held 1:36:36
+
++1.74 USDT · +1.74% · wallet 1001.74 USDT
+```
+
+That hook returns nothing and swallows every exception, so a Telegram outage or
+a missing field can never affect a trade. It needs
+`telegram.allow_custom_messages: true`, which is set.
+
+The daily summary arrives at `01:00` UTC (`notification_settings.daily`), i.e.
+21:00 in Montreal.
 
 ## Limits and self-healing
 

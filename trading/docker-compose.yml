@@ -55,6 +55,11 @@ services:
     stop_grace_period: 30s
     volumes:
       - "./user_data:/freqtrade/user_data"
+      # FreqUI (the web dashboard) ships inside the image, unversioned and
+      # uneditable there. This mount pins our branded copy over it, read-only,
+      # so a container recreate keeps the HamuBot branding instead of quietly
+      # reverting to stock FreqUI.
+      - "./ui:/freqtrade/freqtrade/rpc/api_server/ui/installed:ro"
     # Loopback only, on purpose: the web UI is reached through an SSH tunnel and
     # is never exposed to the internet.
     ports:

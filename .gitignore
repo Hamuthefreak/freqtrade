@@ -122,3 +122,7 @@ target/
 !config_examples/config_freqai.example.json
 
 docker-compose-*.yml
+
+# The branded FreqUI copy is generated on the VM by deploy/brand-ui.sh, not
+# committed: 3 MB of vendored build output that the image already ships.
+trading/ui/
