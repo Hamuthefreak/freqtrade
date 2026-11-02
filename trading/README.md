@@ -307,3 +307,64 @@ sudo docker run --rm --memory 900m --cpus 1 \
 `user_data/backtest.json` and `backtest_alts.json` carry no stoploss/ROI on
 purpose, so each strategy is judged with its own risk settings instead of the
 live config's.
+
+## Phone access with real HTTPS
+
+An SSH tunnel is right for a laptop, clumsy on a phone. The dashboard goes on
+your own tailnet instead, with a genuine Let's Encrypt certificate and no
+inbound port:
+
+```bash
+sudo bash trading/deploy/setup-dashboard-https.sh
+```
+
+Run it once from SSH. If the machine is not signed in yet it prints the exact
+`tailscale up` command and the approval link; approve the node in a browser, then
+re-run the script. It ends with `tailscale serve --bg 8080`, which publishes
+`https://<node>.<tailnet>.ts.net/ui` to devices signed in to your tailnet only.
+
+Why Serve and never Funnel: Funnel puts the same port on the public internet,
+where freqtrade's single password is the only thing between a stranger and your
+exchange account — freqtrade's own docs say not to expose this API publicly. A
+Cloudflare *quick* tunnel has the same problem (Cloudflare states any URL holder
+can reach the service, and the hostname appears in Certificate Transparency
+logs), so it is not used here. With Serve, the free Personal tailnet is the
+perimeter: the API stays bound to `127.0.0.1`, `CORS_origins` stays empty, and
+`tailscale serve` proxies loopback-to-tailnet with TLS terminated locally.
+
+## What the activity tests showed (2026-11-02)
+
+The complaint was five days without a trade. The bot was not broken: the dry-run
+DB contains exactly two orders, both from the first forced trade, so it had
+simply never had a setup. Re-running the live config over Oct 30 – Nov 2 with
+freshly downloaded candles produced **zero trades as well**, which is the
+important agreement — live and backtest say the same thing.
+
+Trades arrive in bursts: 8 in the four days to Oct 30, then nothing. Every lever
+that would add trades was measured against the last 30 days (Oct 3 – Nov 2, 14
+pairs, fresh data):
+
+| Variant | Trades | Total profit | Max drawdown |
+| --- | --- | --- | --- |
+| Deployed config (stake 100) | 25 | −0.65% | 3.0% |
+| 30-pair universe (top-volume, non-equity) | 25 | −0.14% | 3.0% |
+| Stake 200 (2× size) | 25 | −1.29% | 6.0% |
+| Stake 300 (3× size) | 25 | −1.94% | 9.0% |
+| Upside gate removed (`profit_threshold` 1.0) | 25 | −0.65% | 3.0% |
+| Upside gate halved (1.004) | 25 | −0.65% | 3.0% |
+
+Two things fell out of this:
+
+- **Nothing was changed on the live bot.** Every loosening either adds nothing
+  (the 0.8% upside gate never binds — identical results) or grows the loss
+  (wider universe, bigger stake). Adding trades to a strategy with no edge only
+  adds variance.
+- **The earlier +0.76% was a window artifact.** The same config measured over a
+  30-day window ending Oct 30 was +0.76%; with the last three days included it is
+  −0.65%. The win rate is high (84%) but a single −15% stoploss wipes out six
+  winners, and position size scales that arithmetic in both directions.
+
+So the honest status is: this is a plausible mechanism without a demonstrated
+edge, running for free in dry run. The next step that could actually change the
+outcome is a parameter search with an out-of-sample holdout (hyperopt on one
+window, validate on another), not a louder version of the same rules.
