@@ -622,3 +622,65 @@ the reports are a no-op, so in practice the password gate is the control and the
 list is managed from the host. Wiring `/allow` back up means creating a second
 bot in BotFather and putting its token on the VM — it must not be pasted into a
 chat, since a token in a chat log is a token someone else can use.
+
+### Round four: auditing the risk side, and a published strategy on the same bench
+
+Rounds one to three only ever changed the entry. The audit of `config.json` found
+the asymmetry nobody had looked at: the bot takes profit at **+1.0%** and carries a
+hard stop at **−15%**. At a 95% win rate that reads "the stop never fires", but one
+trigger erases fifteen winners, so it was tested rather than argued about.
+
+63 days, 20 pairs, deployed exit, one change per run:
+
+| Variant | Trades | Profit | Drawdown |
+|---|---|---|---|
+| **Deployed (control)** | 413 | **+17.96%** | 6.33% |
+| dip 0.990 (1.0% under the EMA) | 472 | +8.07% | 13.93% |
+| dip 0.992 (0.8% under the EMA) | 561 | +8.67% | 17.21% |
+| `rsi_fast` ceiling 45 | 413 | +17.96% | 6.33% (bit-identical) |
+| ASGO `momentum_5m` (published 5m breakout) | 320 | +4.22% | 15.40% |
+| stoploss −8% | 488 | +4.11% | — |
+| stoploss −5% | 565 | −2.56% | — |
+| stoploss −3% | 631 | −0.72% | — |
+
+Profit falls monotonically as the stop tightens, so the wide stop is not a bug to
+fix: this is a mean-reversion entry, it is supposed to survive being early, and a
+tight stop simply converts the 95% of winners that dip further into 3% losses. The
+`rsi_fast` ceiling is not binding at all (45 produced exactly the control's
+trades), and both depth variants buy more but pay three to five times the drawdown.
+
+The external candidate is `ASGOMom.py`, a faithful port of traxguo/ASGO.ai's
+`momentum_5m` (range expansion, 20-bar breakout, green candle, −1.5%/+3%). It is
+the best-documented 5m rule set found online, with the author's own fee study
+admitting it goes negative at retail fees — and on our data it made +4.2% against
+the deployed +18.0%, with more drawdown, so it stays on the bench, not in the
+compose file. NostalgiaForInfinity was **not** run: it is a 2.8 MB file needing 800
+startup candles, five timeframes and 40-80 pairs, which does not fit a 768 MB
+container on a 1 GB VM, and its results are only published in commit comments.
+
+Operational findings from the audit, all fixed or recorded:
+
+* seven pairs had candles ending 2026-10-30, 92 hours stale, because the download
+  had only ever covered a subset — `download-data --days 75` refreshed all twenty
+  to the present;
+* `process_only_new_candles` was unset, so indicators were recomputed on every
+  five-second loop; now `true`;
+* there are no protections/cooldowns, and entries are limit orders with a 10-minute
+  unfilled timeout — backtests assume a fill at candle close, so live fills will be
+  somewhat worse than the table above. That gap is recorded here rather than
+  papered over with an unmeasured change.
+
+## Files
+
+| Path | What it is |
+|---|---|
+| `user_data/strategies/NASOSv4.py` | upstream strategy: entry logic, EWO, RSI, sell trend |
+| `user_data/strategies/NASOSv4Wide.py` | parent with the shallower 1.6% dip and the notification hook |
+| `user_data/strategies/NASOSv4Active.py` | 1.2% dip, hourly-high veto dropped |
+| `user_data/strategies/HamuFaster.py` | round one: dip depth and exit-speed variants |
+| `user_data/strategies/HamuFaster2.py` | round two: regime-gate variants (**HF2_ewoM2 is live**) |
+| `user_data/strategies/HamuBest.py` | round four: entry-depth and RSI variants |
+| `user_data/strategies/ASGOMom.py` | ported external 5m breakout candidate |
+| `user_data/backtest_all.json` | 20 pairs, 8 slots overlay |
+| `user_data/backtest_fast_exit.json` | deployed exit overlay |
+| `user_data/backtest_sl*.json` | stop-loss overlays for round four |
