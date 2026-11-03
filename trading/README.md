@@ -605,3 +605,20 @@ the thing that changed.
 Revert everything with `--strategy NASOSv4Active` in the compose file, plus
 `minimal_roi {"0": 10.0}`, `trailing_stop_positive_offset 0.016` and
 `trailing_stop_positive 0.001` in `config.json`.
+
+#### Correction: the allowlist does not read Telegram by default
+
+`tg-allow.py` originally polled `getUpdates` once a minute from cron, which is
+wrong on a host where freqtrade is running: a bot token may only be long-polled
+by one process, so the two evicted each other with `HTTP 409 Conflict` — the
+bot's own commands were dropped and the poller never received a message. The
+freqtrade log recorded the damage as
+`telegram.error.Conflict: terminated by other getUpdates request`.
+
+The cron entry therefore runs the script with no arguments, which only *sends*
+(refusal reports) and rebuilds `allow.conf`; reading commands requires `--poll`
+and a bot of its own, or freqtrade's Telegram disabled. With an empty allowlist
+the reports are a no-op, so in practice the password gate is the control and the
+list is managed from the host. Wiring `/allow` back up means creating a second
+bot in BotFather and putting its token on the VM — it must not be pasted into a
+chat, since a token in a chat log is a token someone else can use.

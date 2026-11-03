@@ -191,8 +191,8 @@ def blocked_reports(items, state):
 
 
 def main():
-    rebuild_only = '--rebuild' in sys.argv[1:]
-    if rebuild_only:
+    argv = sys.argv[1:]
+    if '--rebuild' in argv:
         rebuild()
         print('rebuilt %s with %d entries' % (NGINX_PATH, len(entries())))
         return
@@ -208,6 +208,25 @@ def main():
     # /allow command from being swallowed when there is no backlog to seed from.
     if 'since' not in state:
         state['since'] = int(time.time())
+
+    if '--poll' not in argv:
+        # Only one process may long-poll a bot token. freqtrade owns getUpdates on
+        # this host, so a second poller is answered with HTTP 409 and the two
+        # evict each other: the bot's own commands get dropped and this script
+        # never sees a message. Sending is unshared and safe, so the default mode
+        # reports refused addresses and touches nothing else. Reading commands
+        # needs --poll and either a bot of its own or freqtrade's Telegram off.
+        sent = 0
+        for reply in blocked_reports(entries(), state):
+            try:
+                tg(token, 'sendMessage', {'chat_id': chat, 'text': reply})
+                sent += 1
+            except Exception as exc:
+                print('report send failed: %s' % exc)
+        save_state(state)
+        print('%s reports only (no polling): %d sent, list has %d entry(ies)'
+              % (time.strftime('%Y-%m-%d %H:%M:%SZ', time.gmtime()), sent, len(entries())))
+        return
 
     params = {'timeout': 0, 'allowed_updates': json.dumps(['message'])}
     if state.get('offset') is not None:
