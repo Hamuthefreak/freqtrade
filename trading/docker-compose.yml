@@ -69,4 +69,9 @@ services:
       --logfile /freqtrade/user_data/logs/freqtrade.log
       --db-url sqlite:////freqtrade/user_data/tradesv3.sqlite
       --config /freqtrade/user_data/config.json
-      --strategy NASOSv4Wide
+      # NASOSv4Active is NASOSv4Wide with a shallower entry dip (1.2% under the
+      # 8-EMA instead of 1.6%) and the hourly-high veto dropped, so it takes
+      # roughly twice the entries. Measured cost on the holdout month:
+      # 46 trades at -4.53% against 25 trades at -0.62% for NASOSv4Wide. Dry run
+      # only; switching back is a one-word change here.
+      --strategy NASOSv4Active
