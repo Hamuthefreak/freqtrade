@@ -1,0 +1,28 @@
+{
+  "max_open_trades": 8,
+  "stake_amount": 100,
+  "exchange": {
+    "pair_whitelist": [
+      "BTC/USDT",
+      "ETH/USDT",
+      "SOL/USDT",
+      "DOGE/USDT",
+      "XRP/USDT",
+      "ADA/USDT",
+      "LINK/USDT",
+      "AVAX/USDT",
+      "INJ/USDT",
+      "NEAR/USDT",
+      "ARB/USDT",
+      "APT/USDT",
+      "OP/USDT",
+      "TRX/USDT",
+      "AAVE/USDT",
+      "BCH/USDT",
+      "BNB/USDT",
+      "DOT/USDT",
+      "LTC/USDT",
+      "SUI/USDT"
+    ]
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "trailing_stop_positive_offset": 0.010,
+  "trailing_stop_positive": 0.002,
+  "minimal_roi": {
+    "0": 0.02
+  }
+}
