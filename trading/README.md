@@ -557,3 +557,51 @@ The lockout story is deliberate: the allowlist can refuse the phone, but the
 Telegram chat is server-side, so `/allowall` always gets the owner back in. From
 SSH it is `: > /opt/freqtrade/ui-gate/allowlist.txt` plus
 `python3 /usr/local/bin/hamu-tg-admin.py --rebuild`.
+
+### Making it trade more, with numbers instead of guesses
+
+The bot had taken exactly **one** trade in its life, and that one was a manual
+`force_entry`. Diagnosing it turned up two separate causes, neither of which was
+"the strategy is broken":
+
+* the strategy had only been running as `NASOSv4Active` since 00:06 that day —
+  every earlier restart resolved to `NASOSv4Wide` or `SampleStrategy`, so
+  "weeks with no trade" was mostly "the strategy kept being switched";
+* both entry gates were binding at once. The bot's own analysed dataframe showed
+  every pair at `EWO` between −0.3 and −2.6 while the entry needs `EWO > 0`, and
+  the closest dip in the last 100 candles was INJ at 0.98927 against a 0.988
+  threshold, i.e. it missed by 0.1%.
+
+Variants in `strategies/HamuFaster.py` and `HamuFaster2.py` change one lever
+each. `HF_base` reproduces the deployed entry (270 trades vs 268) so the
+comparisons are attributable, and every run used the same 20 pairs over
+2026-09-01 .. 2026-11-03.
+
+| Entry | Exit | Trades | Profit | Drawdown | Avg held |
+|---|---|---|---|---|---|
+| NASOSv4Active (deployed then) | +1.6% trailing | 268 | +20.0% | 7.05% | 22h |
+| dip 0.992 (looser dip) | +1.6% trailing | 371 | **+5.7%** | 18.05% | 1d 2h |
+| dip 0.995 | +1.6% trailing | 386 | +14.3% | 17.35% | 1d 5h |
+| NASOSv4Active | **+1.0% take, 0.2% trail** | 326 | +17.1% | **3.68%** | 12h |
+| **HF2_ewoM2 (`EWO > −2`)** | **+1.0% take, 0.2% trail** | **412** | **+18.1%** | 6.24% | 15h |
+
+Loosening the entry dip is a trap: 38% more trades for a quarter of the profit
+and two and a half times the drawdown. The two levers that pay are a faster exit
+(half the drawdown, half the holding time, +21% trades) and letting the regime
+gate fall to −2 (another +26% trades at the same total profit). That combination
+is what `docker-compose.yml` and `config.json` now run: 20 pairs, 8 slots, take
+profit at +1.0%, 0.2% trail, `--strategy HF2_ewoM2`.
+
+Exits are configured in `config.json`, not in the strategy class — the config
+overrides `minimal_roi` and `trailing_*`, which is why an exit-only subclass came
+out bit-identical to its control.
+
+**Out of sample, this is not a money machine.** On the seven pairs with longer
+history, the same setup over 2026-03-04 .. 2026-09-01 made +0.98% in six months
+at 0.85 trades/day (profit factor 1.07). The recent 62 days were a good regime.
+Expect long flat stretches, and treat the activity level — not the return — as
+the thing that changed.
+
+Revert everything with `--strategy NASOSv4Active` in the compose file, plus
+`minimal_roi {"0": 10.0}`, `trailing_stop_positive_offset 0.016` and
+`trailing_stop_positive 0.001` in `config.json`.
