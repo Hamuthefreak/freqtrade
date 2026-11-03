@@ -7,7 +7,9 @@
 # Basic-auth protected, and /api is left to freqtrade's own password check
 # because a browser can only send one Authorization header per request.
 #
-# Run as root on the bot host:  sudo sh public-dashboard.sh
+# Run as root on the bot host:  sudo sh public-dashboard.sh [--notify]
+# --notify also sends the credentials to the owner's Telegram chat; without it
+# the gate is (re)built silently, which is what re-runs want.
 # Undo (back to tailnet-only):  sudo tailscale funnel --https=443 off
 set -e
 DIR=/opt/freqtrade/ui-gate
@@ -24,6 +26,12 @@ chmod 600 "$DIR/pass.txt"
 printf 'hamu:%s\n' "$(openssl passwd -apr1 "$PASS")" > "$DIR/htpasswd"
 chmod 644 "$DIR/htpasswd"
 
+# Address allowlist, maintained from Telegram by deploy/tg-allow.py. An empty
+# file allows every address through to the password gate.
+[ -f "$DIR/allowlist.txt" ] || : > "$DIR/allowlist.txt"
+[ -f "$DIR/allow.conf" ] || : > "$DIR/allow.conf"
+chmod 644 "$DIR/allowlist.txt" "$DIR/allow.conf"
+
 cat > "$DIR/nginx.conf" <<'CONF'
 limit_req_zone $binary_remote_addr zone=api:10m rate=20r/s;
 
@@ -31,6 +39,9 @@ server {
     listen 127.0.0.1:8081;
     server_name _;
     client_max_body_size 8m;
+
+    # Managed over Telegram; empty means no address restriction at all.
+    include /etc/nginx/auth/allow.conf;
 
     # FreqUI shell and its assets: browser-level password gate.
     location / {
@@ -66,6 +77,7 @@ docker rm -f hamu-ui-gate >/dev/null 2>&1 || true
 docker run -d --name hamu-ui-gate --restart always --network host \
   -v "$DIR/nginx.conf:/etc/nginx/conf.d/default.conf:ro" \
   -v "$DIR/htpasswd:/etc/nginx/auth/htpasswd:ro" \
+  -v "$DIR/allow.conf:/etc/nginx/auth/allow.conf:ro" \
   nginx:alpine >/dev/null
 sleep 3
 
@@ -79,7 +91,9 @@ echo "api, api creds: $(curl -s -o /dev/null -w '%{http_code}' -u "$AP" http://1
 echo "api, no creds : $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8081/api/v1/show_config)"
 
 # The gate password has to reach the owner somehow, and it must not be pasted
-# into a chat, so it goes to their own Telegram chat.
+# into a chat, so it goes to their own Telegram chat. Only on --notify, so a
+# config-only re-run does not spam them.
+if [ "${1:-}" = "--notify" ]; then
 python3 - <<'PY'
 import json, urllib.parse, urllib.request
 cfg = json.load(open('/opt/freqtrade/user_data/config.json'))
@@ -94,3 +108,4 @@ data = urllib.parse.urlencode({'chat_id': cfg['telegram']['chat_id'], 'text': te
 req = urllib.request.Request('https://api.telegram.org/bot' + cfg['telegram']['token'] + '/sendMessage', data)
 print('credentials sent, telegram http', urllib.request.urlopen(req, timeout=25).status)
 PY
+fi

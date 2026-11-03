@@ -521,3 +521,39 @@ What the public internet sees is an `nginx:alpine` container listening on
 
 The gate password is generated on the host and delivered over the bot's own
 Telegram chat, never through a chat transcript or a committed file.
+
+### Controlling who may reach the dashboard, from Telegram
+
+Since Funnel makes the dashboard reachable from the open internet, an optional
+address allowlist can be driven entirely from the owner's Telegram chat — which
+matters when the phone cannot install anything and its carrier changes its
+address without warning. `deploy/tg-allow.py` runs from
+`/etc/cron.d/hamu-tg-admin` every minute and only honours messages from the chat
+id in the bot config:
+
+```
+/allow 1.2.3.4     let this address in (CIDR also accepted)
+/allow             show the current list
+/deny 1.2.3.4      remove an address
+/allowall          empty the list: password alone is enough again
+/help              the commands
+```
+
+An empty list means every address may reach the password box. A non-empty one
+rewrites `ui-gate/allow.conf` (`allow …; deny all;`), which nginx includes at
+server level, then reloads the gate — no restart, no dropped sessions. When the
+list is non-empty and a device is refused, the poller reads nginx's access log
+and messages the owner the address plus the exact `/allow` line to fix it, so
+nobody ever has to look up their own IP; repeats are rate-limited to once an hour
+per address.
+
+Two details worth keeping: history before the poller's first run is skipped by
+*message date* (an update-id watermark is never seeded when there is no backlog,
+which would otherwise swallow the owner's first real command), and a bare
+address must canonicalise identically to its `/32` form, or `/allow` twice adds a
+duplicate that `/deny` cannot remove.
+
+The lockout story is deliberate: the allowlist can refuse the phone, but the
+Telegram chat is server-side, so `/allowall` always gets the owner back in. From
+SSH it is `: > /opt/freqtrade/ui-gate/allowlist.txt` plus
+`python3 /usr/local/bin/hamu-tg-admin.py --rebuild`.
