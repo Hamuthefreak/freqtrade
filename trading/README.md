@@ -492,3 +492,32 @@ from `/etc/cron.d/hamu-idle-alert` every six hours, reads the trade database
 read-only and messages Telegram when no new entry has appeared for three days.
 It sends at most one alert per 24 hours and clears its state as soon as a trade
 opens, so a quiet bot is distinguishable from a broken one.
+
+## Reaching the dashboard from a phone that cannot install anything
+
+`tailscale serve` only works on devices that have joined the tailnet, so a phone
+that cannot install the Tailscale app (or change its DNS) sees
+`DNS_PROBE_FINISHED_NXDOMAIN` — the name genuinely does not exist on the public
+internet, which is the point of it. The answer is `deploy/public-dashboard.sh`:
+it keeps the same HTTPS name and certificate but publishes it with Tailscale
+Funnel, behind a password gate.
+
+```
+sudo sh trading/deploy/public-dashboard.sh   # gate + funnel + credential delivery
+sudo tailscale funnel --https=443 off        # back to tailnet-only
+```
+
+What the public internet sees is an `nginx:alpine` container listening on
+`127.0.0.1:8081` with Basic auth on the UI, proxying to freqtrade on
+`127.0.0.1:8080`. Two details matter and both were found the hard way:
+
+- The password file must be `644`. The nginx worker drops privileges, and an
+  unreadable file returns **401 to anonymous requests but 500 once credentials
+  are supplied**, which looks like a broken proxy rather than a permissions bug.
+- `/api/` is deliberately *outside* the gate. A browser carries only one
+  `Authorization` header per request, so gating the API too would let the gate
+  credentials overwrite FreqUI's own login and the UI would never authenticate.
+  The API keeps freqtrade's password check plus an nginx rate limit.
+
+The gate password is generated on the host and delivered over the bot's own
+Telegram chat, never through a chat transcript or a committed file.
