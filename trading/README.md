@@ -456,3 +456,39 @@ The general lesson from this whole exercise: on this dataset, every change that
 increased trade frequency reduced expectancy on unseen data. No setting found so
 far turns the strategy into a reliable earner; it is a mechanism that paid off in
 one particular market and gives back outside it.
+
+## Making the bot trade more, and what it cost (2026-11-03)
+
+The bot had taken one entry in four days. Two things were suspected: the hourly
+veto in `dont_buy_conditions` (driven by `profit_threshold`) and the depth of the
+dip it demands. Both were measured separately on the holdout month.
+
+| Config | Holdout (Oct 5 – Nov 3) | Tune month (Sep 5 – Oct 5) |
+| --- | --- | --- |
+| NASOSv4Wide, the old deploy | 25 trades, −0.62% | 75 trades, +8.69% |
+| Hourly veto removed only | 25 trades, **−0.62%** | not run |
+| NASOSv4Active (deployed) | 46 trades, **−4.53%** | 101 trades, +10.86% |
+
+The hourly clause turned out to be irrelevant: removing it produced the *same 25
+trades with the same result*, so it never bound. The dip depth was the whole
+lever — asking for 1.2% under the 8-EMA instead of 1.6% nearly doubles entries.
+
+The cost of that activity, in the same month: **21 extra trades bought 3.9
+percentage points of loss**. Per-trade expectancy falls from −0.025% to −0.098%
+while the win rate barely moves (84.0% → 82.6%); the extra trades are not worse
+in kind, there are simply more of them losing the same average amount against a
+smaller average win. In the September regime the same change is roughly neutral
+to slightly better (+10.86% vs +8.69%), which is why it looks harmless until it
+meets a month it does not suit.
+
+Deployed anyway, deliberately: this is a dry run, and a bot that never trades
+teaches nothing. Reverting is one word in `docker-compose.yml`
+(`--strategy NASOSv4Wide`) plus `docker compose up -d`.
+
+### Idle alert
+
+`deploy/idle-alert.sh`, installed at `/usr/local/bin/hamu-idle-alert.sh` and run
+from `/etc/cron.d/hamu-idle-alert` every six hours, reads the trade database
+read-only and messages Telegram when no new entry has appeared for three days.
+It sends at most one alert per 24 hours and clears its state as soon as a trade
+opens, so a quiet bot is distinguishable from a broken one.
